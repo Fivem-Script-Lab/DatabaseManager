@@ -80,7 +80,7 @@ exports("GetDatabaseTableManager", function(table_name)
                 }
             end,
             --- Prepares an `UPDATE` query for a single row.
-            --- @param updates table A table of column-value pairs to update.
+            --- @param updates string[] A table of column names to update
             --- @param condition table A table of column-value pairs defining the condition.
             --- @param cb function|nil Optional callback for asynchronous execution.
             --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
@@ -174,6 +174,52 @@ exports("GetDatabaseTableManager", function(table_name)
                         return DM.InsertRows(table_name, s_sqlrows, s_cb, s_individual)
                     end,
                     update = function(rows, cb, individual)
+                        s_rows, s_cb, s_individual = table.unpack(
+                            RequireNonNullValues(
+                                {rows, cb, individual},
+                                {s_rows, s_cb, s_individual}
+                            )
+                        )
+                    end
+                }
+            end,
+            Delete = function(row, cb)
+                local s_row, s_sqlrow, s_cb = row, {}, cb
+                return {
+                    execute = function(...)
+                        s_sqlrow = {}
+                        local args = {...}
+                        for i=1, math.min(#s_row, #args) do
+                            s_sqlrow[s_row[i]] = args[i]
+                        end
+                        return DM.DeleteRow(table_name, s_sqlrow, s_cb)
+                    end,
+                    update = function(row, cb)
+                        s_row, s_cb = table.unpack(
+                            RequireNonNullValues(
+                                {row, cb},
+                                {s_row, s_cb}
+                            )
+                        )
+                    end
+                }
+            end,
+            DeleteRows = function(rows, cb, individual)
+                local s_rows, s_sqlrows, s_cb, s_individual = rows, {}, cb, individual
+                return {
+                    execute = function(...)
+                        s_sqlrows = {}
+                        local args = {...}
+                        for i=1, #args do
+                            local s_sqlrow = {}
+                            for j=1, math.min(#s_rows, #args[i]) do
+                                s_sqlrow[s_rows[j]] = args[i][j]
+                            end
+                            s_sqlrows[#s_sqlrows + 1] = s_sqlrow
+                        end
+                        return DM.DeleteRows(table_name, s_sqlrows, s_cb, s_individual)
+                    end,
+                    update = function (rows, cb, individual)
                         s_rows, s_cb, s_individual = table.unpack(
                             RequireNonNullValues(
                                 {rows, cb, individual},

@@ -47,6 +47,7 @@ DM.ClearTableCache = function()
 end
 
 ---performs additional check before creating a table
+---@param string # table name
 ---@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
 ---@return boolean #true if table was created or false if it already exists
 DM.CreateTableIfNotExists = function(table_name, args)
@@ -138,11 +139,11 @@ DM.InsertRow = function(table_name, row, cb)
     local value_placeholder = "(" .. string.rep("?,", #keys):sub(1, -2) .. ")"
 
     if cb then
-        MySQL.prepare(([[
+        MySQL.insert(([[
             INSERT INTO %s (%s) VALUES(%s) %s
         ]]):format(table_name, table.unpack(keys), value_placeholder), values, cb)
     else
-        return MySQL.prepare.await(([[
+        return MySQL.insert.await(([[
             INSERT INTO %s (%s) VALUES %s
         ]]):format(table_name, table.concat(keys, ","), value_placeholder), values)
     end
@@ -193,22 +194,22 @@ DM.InsertRows = function(table_name, rows, cb, individual)
         if cb then
             for i = 1, #values_list do
                 local query = ([[INSERT INTO %s (%s) VALUES %s]]):format(table_name, fields, values_list[i])
-                MySQL.prepare(query, all_values[i], cb)
+                MySQL.insert(query, all_values[i], cb)
             end
         else
             local results = {}
             for i = 1, #values_list do
                 local query = ([[INSERT INTO %s (%s) VALUES %s]]):format(table_name, fields, values_list[i])
-                results[#results + 1] = MySQL.prepare.await(query, all_values[i])
+                results[#results + 1] = MySQL.insert.await(query, all_values[i])
             end
             return results
         end
     else
         local query = ([[INSERT INTO %s (%s) VALUES %s]]):format(table_name, fields, table.concat(values_list, ","))
         if cb then
-            MySQL.prepare(query, all_values, cb)
+            MySQL.insert(query, all_values, cb)
         else
-            return MySQL.prepare.await(query, all_values)
+            return MySQL.insert.await(query, all_values)
         end
     end
 end
@@ -380,7 +381,10 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
             return MySQL.prepare.await("SELECT * FROM " .. table_name)
         end
     end
-    
+    if type(conditions) == "table" and #conditions == 0 then
+        conditions = {conditions}
+    end
+
     local query_conditions = {}
     local all_values = {}
 
