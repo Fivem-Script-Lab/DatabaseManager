@@ -1,7 +1,8 @@
----@param table_name string table to be created it it already does not exist
----@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
----@return boolean # true whether the table was created or it was not because it already existed
-DM.CreateTable = function(table_name, args)
+-- -@param table_name string table to be created it it already does not exist
+-- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+-- -@return boolean # true whether the table was created or it was not because it already existed
+DM.CreateTable = function(table_name, args, truncate)
+    if truncate and DM.DoesTableExist(table_name) then return DM.TruncateTable(table_name) end
     local data = {}
     for _, v in ipairs(args) do
         v[1] = '`' .. v[1] .. '`'
@@ -10,6 +11,27 @@ DM.CreateTable = function(table_name, args)
     MySQL.prepare.await(([[CREATE TABLE IF NOT EXISTS %s (%s)]]):format(table_name, table.concat(data, ", ")))
     return true
 end
+
+-- -@param table_name string table to be created it it already does not exist
+-- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+-- -@return boolean # true whether the table was created or it was not because it already existed
+-- Overload.DM:CreateTable({"string", "table"}, function (table_name, args)
+--     local data = {}
+--     for _, v in ipairs(args) do
+--         v[1] = '`' .. v[1] .. '`'
+--         data[#data + 1] = table.concat(v, " ")
+--     end
+--     MySQL.prepare.await(([[CREATE TABLE IF NOT EXISTS %s (%s)]]):format(table_name, table.concat(data, ", ")))
+--     return true
+-- end)
+
+-- -@param table_name string # table name
+-- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+-- -@return boolean #true if table was created or false if it already exists
+-- Overload.DM:CreateTable({"string", "table", "boolean"}, function (table_name, args, truncate)
+--     if truncate and DM.DoesTableExist(table_name) then return DM.TruncateTable(table_name) end
+--     return DM.CreateTable(table_name, args)
+-- end)
 
 ---@param table_name string table to be created it it already does not exist
 ---@return boolean # true whether the table was deleted or not
@@ -47,24 +69,24 @@ DM.ClearTableCache = function()
 end
 
 ---performs additional check before creating a table
----@param string # table name
----@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
----@return boolean #true if table was created or false if it already exists
-DM.CreateTableIfNotExists = function(table_name, args)
-    if DM.DoesTableExist(table_name) then return false end
-    return DM.CreateTable(table_name, args)
-end
+-- -@param table_name string # table name
+-- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+-- -@return boolean #true if table was created or false if it already exists
+-- DM.CreateTableIfNotExists = function(table_name, args)
+--     if DM.DoesTableExist(table_name) then return false end
+--     return DM.CreateTable(table_name, args)
+-- end
 
 ---creates a table if such does not exist, otherwise performs truncate operation
----@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
----@return boolean # always true
-DM.CreateTableIfNotExistsOrTruncate = function(table_name, args)
-    if not DM.DoesTableExist(table_name) then
-        return DM.CreateTable(table_name, args)
-    else
-        return DM.TruncateTable(table_name)
-    end
-end
+-- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+-- -@return boolean # always true
+-- DM.CreateTableIfNotExistsOrTruncate = function(table_name, args)
+--     if not DM.DoesTableExist(table_name) then
+--         return DM.CreateTable(table_name, args)
+--     else
+--         return DM.TruncateTable(table_name)
+--     end
+-- end
 
 ---returns all unique instances of keys in arrays provided
 ---@param tbl any[][] an array of values
@@ -107,8 +129,8 @@ local function GetValuesInOrder(tbl_v, tbl_order)
     return values
 end
 --- Checks if all values are present in given array
---- @param tbl array to check for values
---- @param values values required in tbl
+--- @param tbl any[] to check for values
+--- @param values any[] values required in tbl
 --- @return boolean #true if all values are present, otherwise false
 local function ArrayContainsValues(tbl, values)
     for _, v in ipairs(values) do
@@ -376,9 +398,9 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
     query = query or ""
     if not conditions then
         if cb then
-            return MySQL.prepare("SELECT * FROM " .. table_name)
+            return MySQL.prepare("SELECT * FROM " .. table_name .. " " .. query, {}, cb)
         else
-            return MySQL.prepare.await("SELECT * FROM " .. table_name)
+            return MySQL.prepare.await("SELECT * FROM " .. table_name .. " " .. query)
         end
     end
     if type(conditions) == "table" and #conditions == 0 then
@@ -389,6 +411,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
     local all_values = {}
 
     for i = 1, #conditions do
+        ---@diagnostic disable-next-line: need-check-nil
         local condition = conditions[i]
         local keys = GetKeys(condition)
         local placeholders = {}
@@ -405,6 +428,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
         if cb then
             for i = 1, #query_conditions do
                 local query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
+                ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
                 MySQL.prepare(query, row_values, cb)
@@ -413,6 +437,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
             local results = {}
             for i = 1, #query_conditions do
                 local query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
+                ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
                 results[#results + 1] = MySQL.prepare.await(query, row_values)

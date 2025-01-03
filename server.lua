@@ -66,10 +66,10 @@ exports("GetDatabaseTableManager", function(table_name)
             Select = function(conditions, cb, individual, query)
                 local s_conditions, s_cb, s_cb_individual, s_query = conditions, cb, individual, query
                 return {
-                    execute = function()
-                        return DM.SelectRows(table_name, s_conditions, s_cb, s_cb_individual, s_query)
+                    execute = function(conditions)
+                        return DM.SelectRows(table_name, conditions or s_conditions, s_cb, s_cb_individual, s_query)
                     end,
-                    update = function(sqlquery, conditions, cb, individual, query)
+                    update = function(conditions, cb, individual, query)
                         s_conditions, s_cb, s_cb_individual, s_query = table.unpack(
                             RequireNonNullValues(
                                 {conditions, cb, individual, query},
@@ -154,7 +154,7 @@ exports("GetDatabaseTableManager", function(table_name)
                 }
             end,
             --- Prepares an `INSERT` query for multiple rows.
-            --- @param rows table An array of column names for rows.
+            --- @param rows string[] An array of column names for rows.
             --- @param cb function|nil Optional callback for asynchronous execution.
             --- @param individual boolean|nil Whether to handle inserts individually.
             --- @return table # Prepared `INSERT` object with `execute` and `update` methods.
@@ -183,6 +183,10 @@ exports("GetDatabaseTableManager", function(table_name)
                     end
                 }
             end,
+            ---Prepares a 'DELETE' statement query for a single conditions
+            ---@param row string[] column names
+            ---@param cb? function|nil used for asynchronous deletion
+            ---@return table # Prepared `DELETE` object with `execute` and `update` methods.
             Delete = function(row, cb)
                 local s_row, s_sqlrow, s_cb = row, {}, cb
                 return {
@@ -204,6 +208,11 @@ exports("GetDatabaseTableManager", function(table_name)
                     end
                 }
             end,
+            ---Prepares a 'DELETE' statement query for a single conditions
+            ---@param rows table array of tables where each table contains data for each condition
+            ---@param cb? function|nil used for asynchronous deletion
+            ---@param individual? boolean|nil used for individual executions of each delete operation
+            ---@return table # Prepared `DELETE` object with `execute` and `update` methods.
             DeleteRows = function(rows, cb, individual)
                 local s_rows, s_sqlrows, s_cb, s_individual = rows, {}, cb, individual
                 return {
