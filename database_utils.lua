@@ -1,6 +1,6 @@
--- -@param table_name string table to be created it it already does not exist
--- -@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
--- -@return boolean # true whether the table was created or it was not because it already existed
+---@param table_name string table to be created it it already does not exist
+---@param args string[][] an array of array of strings, each array represents a single column, the first index of each array is the column name
+---@return boolean # true whether the table was created or it was not because it already existed
 DM.CreateTable = function(table_name, args, truncate)
     if truncate and DM.DoesTableExist(table_name) then return DM.TruncateTable(table_name) end
     local data = {}
@@ -177,7 +177,7 @@ end
 --- and supports synchronous and asynchronous operations.
 ---
 --- @param table_name string The name of the database table.
---- @param rows table An array of tables, where each table represents a row to insert.
+--- @param rows table[] An array of tables, where each table represents a row to insert.
 --- @param cb? function|nil Optional callback function for asynchronous insertion.
 --- @param individual? boolean If `true`, inserts each row individually; otherwise, inserts all rows in bulk.
 --- @return table|boolean|nil # Returns a list of results for each row if synchronous; `false` if the table doesn't exist.
@@ -204,8 +204,8 @@ DM.InsertRows = function(table_name, rows, cb, individual)
         end
         values_list[#values_list + 1] = value_placeholders
         if not individual then
-            for i=1, #row_values do
-                all_values[#all_values + 1] = row_values[i]
+            for k=1, #row_values do
+                all_values[#all_values + 1] = row_values[k]
             end
         else
             all_values[#all_values + 1] = row_values
@@ -294,26 +294,35 @@ DM.InsertRows2 = function(table_name, rows, cb, individual)
     end
 end
 
---- Deletes a single row from a database table.
+--- Deletes rows based on a single condition from a database table.
 ---
 --- Constructs a `DELETE` query with conditions based on the specified `row` and executes it.
+--- If there is no condition specified, the query will simply delete all rows
 --- Supports both synchronous and asynchronous operations.
 ---
 --- @param table_name string The name of the database table.
---- @param row table A table representing the conditions for deletion (keys are column names).
+--- @param row? table|nil A table representing the conditions for deletion (keys are column names).
 --- @param cb? function|nil Optional callback for asynchronous deletion.
+--- @param query? string|nil Optional query string appended at the end of the query
 --- @return boolean|nil # Returns `false` if the table doesn't exist. If synchronous, returns the result of the operation.
-function DM.DeleteRow(table_name, row, cb)
+function DM.DeleteRow(table_name, row, cb, query)
     if not DM.DoesTableExist(table_name) then return false end
+    query = query or ""
     local conditions = {}
     local values = {}
+    
+    if row then
+        
+        for column, value in pairs(row) do
+            conditions[#conditions + 1] = column .. " = ?"
+            values[#values + 1] = value
+        end
 
-    for column, value in pairs(row) do
-        conditions[#conditions + 1] = column .. " = ?"
-        values[#values + 1] = value
+        query = "DELETE FROM " .. table_name .. " WHERE " .. table.concat(conditions, " AND ") .. " " .. query
+    else
+        query = "DELETE FROM " .. table_name .. " " .. query
     end
 
-    local query = "DELETE FROM " .. table_name .. " WHERE " .. table.concat(conditions, " AND ")
 
     if cb then
         MySQL.prepare(query, values, cb)
@@ -427,7 +436,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
     if individual then
         if cb then
             for i = 1, #query_conditions do
-                local query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
+                query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
@@ -436,7 +445,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
         else
             local results = {}
             for i = 1, #query_conditions do
-                local query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
+                query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, query_conditions[i]) .. query
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
@@ -445,7 +454,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
             return results
         end
     else
-        local query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, table.concat(query_conditions, " OR ")) .. query
+        query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, table.concat(query_conditions, " OR ")) .. query
         if cb then
             MySQL.prepare(query, all_values, cb)
         else
@@ -453,6 +462,8 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
         end
     end
 end
+
+DM.Select = DM.SelectRows
 
 --- Updates a single row in a database table.
 ---
@@ -486,7 +497,7 @@ DM.UpdateRow = function(table_name, updates, condition, cb, query)
 
     local condition_clause = table.concat(condition_placeholders, " AND ")
 
-    local query = ([[UPDATE %s SET %s WHERE %s]]):format(table_name, update_clause, condition_clause) .. query
+    query = ([[UPDATE %s SET %s WHERE %s]]):format(table_name, update_clause, condition_clause) .. query
 
     if cb then
         MySQL.prepare(query, all_values, cb)
