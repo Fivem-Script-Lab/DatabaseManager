@@ -40,7 +40,7 @@ end
 ---Returns data associated with given overloaded reference
 ---If no reference is found, return false
 ---@param func function|table reference to overloaded function
----@return {[1]: table, [2]: function, [3]: number, [4]: string, [5]: string}|false result associated with reference or false
+---@return {[1]: table, [2]: function, [3]: number, [4]: string, [5]: string, [6]: function}|false result associated with reference or false
 function GetOverloadedData(func)
     if not IsOverloaded(func) then return false end
     return overloadedreferences[func]
@@ -91,6 +91,7 @@ function areParameterTypesValid(to_check, parameters, trailingNils)
     end
     for k, param in ipairs(to_check) do
         local paramType = _t(param)
+        if callable(param) then paramType = "function" end
         local expectedType = parameters[k]
         if _t(expectedType) == "table" then
             local canpass = false
@@ -206,6 +207,7 @@ local function _ObjectOverload(object, name, types, func)
             local args = {...}
             for _,v in ipairs(objectoverloaded[name]) do
                 if (#args - v[3]) <= #v[1] and areParameterTypesValid(args, v[1], v[3]) then
+                    print(v[2], 15)
                     return v[2](...)
                 end
             end
@@ -217,14 +219,15 @@ local function _ObjectOverload(object, name, types, func)
 end
 
 local function _ObjectOverloadCustomTypeCheck(object, name, func, override)
-    objectoverloaded[name] = objectoverloaded[name] or {}
-    objectoverloaded[name][#objectoverloaded[name]+1] = {{}, func, 0, "object", name, override}
+    objectoverloaded[object] = objectoverloaded[object] or {}
+    objectoverloaded[object][name] = objectoverloaded[object][name] or {}
+    objectoverloaded[object][name][#objectoverloaded[object][name]+1] = {{}, func, 0, "object", name, override}
     local overloadedtype = _type(object[name])
     if overloadedtype ~= "function" then
         -- Overloaded function that skips metatable due to how exports work
         object[name] = function(...)
             local args = {...}
-            for _,v in ipairs(objectoverloaded[name]) do
+            for _,v in ipairs(objectoverloaded[object][name]) do
                 if v[6](args, v[1]) then
                     return v[2](...)
                 end
@@ -232,7 +235,7 @@ local function _ObjectOverloadCustomTypeCheck(object, name, func, override)
             return error("Overloaded function on object '" .. name .. "' not found for given parameters.")
         end
     end
-    overloadedreferences[func] = objectoverloaded[name][#objectoverloaded[name]]
+    overloadedreferences[func] = objectoverloaded[object][name][#objectoverloaded[object][name]]
     return func
 end
 
@@ -286,6 +289,10 @@ end
 ---@diagnostic disable-next-line: undefined-field
 setmetatable(_G.Overload, mt)
 
+function Overload:PrepareLocalTable(name)
+    objects[name] = {}
+end
+
 ---@diagnostic disable-next-line: duplicate-set-field
 function Overload:GetObject(name)
     return objects[name]
@@ -304,6 +311,7 @@ function Overload:init()
                             objects[k] = {}
                             object = objects[k]
                         end
+
                         --Overload object, two parameters are the object, and the name of the function, as for the rest just hope for good number of args
                         Overload(object, name, ...)
                     end

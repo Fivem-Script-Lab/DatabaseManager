@@ -69,6 +69,8 @@ local function callable(func)
     return false
 end
 
+local dynamic_env = {}
+
 --- Retrieves a table manager for performing operations on a specific database table.
 ---
 --- Provides a set of methods for database operations like `SELECT`, `INSERT`, `UPDATE`, `DELETE`,
@@ -78,7 +80,9 @@ end
 --- @return table # A table manager object with methods for various database operations.
 exports("GetDatabaseTableManager", function(table_name)
     Overload:init()
-    Overload.Prepare.Select( 
+    Overload:PrepareLocalTable("Prepare")
+    
+    Overload.Prepare.Select(
     --- Prepares a `SELECT` query with optional conditions.
     --- @param conditions table|nil Conditions for the query as column-value pairs.
     --- @param cb function|nil Optional callback for asynchronous execution.

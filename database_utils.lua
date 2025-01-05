@@ -323,7 +323,6 @@ function DM.DeleteRow(table_name, row, cb, query)
         query = "DELETE FROM " .. table_name .. " " .. query
     end
 
-
     if cb then
         MySQL.prepare(query, values, cb)
     else
