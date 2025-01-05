@@ -207,7 +207,6 @@ local function _ObjectOverload(object, name, types, func)
             local args = {...}
             for _,v in ipairs(objectoverloaded[name]) do
                 if (#args - v[3]) <= #v[1] and areParameterTypesValid(args, v[1], v[3]) then
-                    print(v[2], 15)
                     return v[2](...)
                 end
             end
