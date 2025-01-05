@@ -69,8 +69,6 @@ local function callable(func)
     return false
 end
 
-local dynamic_env = {}
-
 --- Retrieves a table manager for performing operations on a specific database table.
 ---
 --- Provides a set of methods for database operations like `SELECT`, `INSERT`, `UPDATE`, `DELETE`,
