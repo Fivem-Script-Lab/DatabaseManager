@@ -205,7 +205,7 @@ exports("GetDatabaseTableManager", function(table_name)
                     s_sqlrow[s_updates[i]] = updated[i]
                 end
                 for i=1, math.min(#s_condition, #conditions) do
-                    s_sqlcond[s_updates[i]] = conditions[i]
+                    s_sqlcond[s_condition[i]] = conditions[i]
                 end
                 return DM.UpdateRow(table_name, s_sqlrow, s_sqlcond, s_cb)
             end,

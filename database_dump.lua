@@ -46,6 +46,7 @@ DM.GetAllDatabaseTablesColumns = function(dbname)
 end
 
 DM.GetDatabaseTablesColumnData = function(dbname, tablename)
+    if not dbname then return {} end
     local columndata = MySQL.query.await(([[
         SELECT COLUMN_TYPE, EXTRA FROM information_schema.columns 
         WHERE table_schema = '%s' AND table_name = '%s'
