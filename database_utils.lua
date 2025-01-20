@@ -439,7 +439,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
-                MySQL.prepare(query, row_values, cb)
+                -- MySQL.prepare(query, row_values, cb)
             end
         else
             local results = {}
@@ -448,16 +448,16 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
-                results[#results + 1] = MySQL.prepare.await(query, row_values)
+                -- results[#results + 1] = MySQL.prepare.await(query, row_values)
             end
             return results
         end
     else
         query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, table.concat(query_conditions, " OR ")) .. query
         if cb then
-            MySQL.prepare(query, all_values, cb)
+            -- MySQL.prepare(query, all_values, cb)
         else
-            return MySQL.prepare.await(query, all_values)
+            -- return MySQL.prepare.await(query, all_values)
         end
     end
 end

@@ -25,8 +25,14 @@ local prepared_multiple_inserts = job_grades.Prepare.InsertRows({
 local prepared_select = job_grades.Prepare.Select({
     job_name = "police"
 })
+
+---- Or for ease of use
+local prepared_dev_select = job_grades.Prepare.Select({"job_name"})
+
 local created_grades = prepared_select.execute()
+local created_dev_grades = prepared_dev_select.execute("police")
 print(#(created_grades or {}))
+print(#(created_dev_grades or {}))
 
 prepared_insert.execute("police", "Sergeant", 2, 3000)
 -- etc.
@@ -44,9 +50,20 @@ local prepared_update = job_grades.Prepare.Update({
 }, {
     job_name = "police"
 })
+
+----You can also simplify above function in a more developer friendly manner!
+
+local prepared_dev_update = job_grades.Prepare.Update({
+    "paycheck"
+}, {
+    "job_name"
+})
+
 prepared_update.execute(5000)
+prepared_dev_update.execute({5000}, {"police"})
 print(prepared_select.execute()[1].paycheck)
 prepared_update.execute(2000)
+prepared_dev_update.execute({2000}, {"police"})
 print(prepared_select.execute()[1].paycheck)
 
 local prepared_delete = job_grades.Prepare.Delete({

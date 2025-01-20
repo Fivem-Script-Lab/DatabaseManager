@@ -1,26 +1,9 @@
-DM = {
-    ready = false, -- value for methods of database readiness
-    cache = {
-        ready = false, -- value for cache value post-update
-        database_name = nil,
-        database_tables = nil,
-        database_columns = nil
-    }
-}
-
-CreateThread(function()
-    while not DM.ready do Wait(0) end
-    DM.cache.database_name = DM.GetDatabaseName()
-    DM.cache.database_tables = DM.GetDatabaseTablesNames()
-    DM.cache.database_columns = DM.GetAllDatabaseTablesColumns()
-    DM.cache.ready = true
-end)
-
-DM.RefreshCache = function()
-    DM.cache.database_name = DM.GetDatabaseName()
-    DM.cache.database_tables = DM.GetDatabaseTablesNames()
-    DM.cache.database_columns = DM.GetAllDatabaseTablesColumns()
-end
+local _tbl_create = table.create
+local _tbl_concat = table.concat
+local _tbl_remove = table.remove
+local _len = string.len
+local _pairs = pairs
+local _ipairs = ipairs
 
 exports("GetDatabaseManager", function()
     return DM
@@ -38,7 +21,7 @@ end)
 local function RequireNonNullValues(tbl, default)
     local result = {}
     default = default or tbl
-    for i,v in ipairs(default) do
+    for i,v in _pairs(default) do
         local value = tbl[i] or v
         if value == nil then value = false end
         result[i] = value
@@ -48,11 +31,9 @@ end
 
 local function isarray(tbl)
     if #tbl == 0 then
-        local _, t = pairs(tbl)
-        return next(t) == nil
-    else
-        return true
+        return next(tbl) == nil
     end
+    return true
 end
 
 local _type = _G.type
@@ -68,6 +49,26 @@ local function callable(func)
     end
     return false
 end
+
+local function getValuesInOrder(tbl_v, tbl_order)
+    local values = {}
+    for i=1, #tbl_order do
+        values[i] = tbl_v[tbl_order[i]]
+    end
+    return values
+end
+
+local function getKeys(tbl)
+    local keys = {}
+    for k,_ in _pairs(tbl) do
+        keys[#keys+1] = k
+    end
+    return keys
+end
+
+local _PrepareSelectStatement = PrepareSelectStatement
+local _PrepareSelectStatementConditionsIncludeNull = PrepareSelectStatementConditionsIncludeNull
+local _DM_SelectQuery = DM.SelectQuery
 
 --- Retrieves a table manager for performing operations on a specific database table.
 ---
@@ -88,10 +89,35 @@ exports("GetDatabaseTableManager", function(table_name)
     --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
     --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
     function(conditions, cb, individual, query)
-        local s_conditions, s_cb, s_cb_individual, s_query = conditions, cb, individual, query
+        local s_conditions, s_cb, s_cb_individual, s_query = conditions or {}, cb, individual, query
+        
+        local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
+        local prepared_arguments, order = _PrepareSelectStatement(nil, conditions, 3)
+        local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
+        order = order or {}
+        local arguments = getValuesInOrder(conditions, order)
         return {
-            execute = function(conditions)
-                return DM.SelectRows(table_name, conditions or s_conditions, s_cb, s_cb_individual, s_query)
+            execute = function(new_conditions)
+                if new_conditions then
+                    local new_keys = getKeys(new_conditions)
+                    if #new_keys ~= #arguments then
+                        prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
+                        if #order == 0 then query_parts[2] = "" end
+                        arguments = getValuesInOrder(new_conditions, order)
+                        query_parts[3] = prepared_arguments
+                    else
+                        for i=1, #new_keys do
+                            if not s_conditions[new_keys[i]] then
+                                prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
+                                if #order == 0 then query_parts[2] = "" end
+                                arguments = getValuesInOrder(new_conditions, order)
+                                query_parts[3] = prepared_arguments
+                                break
+                            end
+                        end
+                    end
+                end
+                return _DM_SelectQuery(_tbl_concat(query_parts, " "), arguments, s_cb)
             end,
             update = function(conditions, cb, individual, query)
                 s_conditions, s_cb, s_cb_individual, s_query = table.unpack(
@@ -118,15 +144,39 @@ exports("GetDatabaseTableManager", function(table_name)
     --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
     --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
     function(fields, cb, individual, query)
-        local s_sqlrow, s_fields, s_cb, s_cb_individual, s_query = nil, fields, cb, individual, query
+        local s_fields, s_cb, s_cb_individual, s_query = fields, cb, individual, query
+        
+        local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
+        local prepared_arguments = _PrepareSelectStatement(nil, fields, 3)
+        local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
+
+        local final_query = _tbl_concat(query_parts, " ")
+        local fields_length = #fields
         return {
             execute = function(...)
-                s_sqlrow = {}
                 local args = {...}
-                for i=1, math.min(#s_fields, #args) do
-                    s_sqlrow[s_fields[i]] = args[i]
+                if fields_length ~= #args then
+                    prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
+                    if #args == 0 then query_parts[2] = "" end
+                    query_parts[3] = prepared_arguments
+                    final_query = _tbl_concat(query_parts, " ")
+                else
+                    for i=1, #s_fields do
+                        if args[i] == nil then
+                            prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
+                            if #args == 0 then query_parts[2] = "" end
+                            query_parts[3] = prepared_arguments
+                            final_query = _tbl_concat(query_parts, " ")
+                            for j=#args, 1, -1 do
+                                if args[j] == nil then
+                                    _tbl_remove(args, j)
+                                end
+                            end
+                            break
+                        end
+                    end
                 end
-                return DM.SelectRows(table_name, s_sqlrow, s_cb, s_cb_individual, s_query)
+                return _DM_SelectQuery(final_query, args, s_cb)
             end,
             update = function(fields, cb, individual, query)
                 s_fields, s_cb, s_cb_individual, s_query = table.unpack(
