@@ -155,27 +155,10 @@ exports("GetDatabaseTableManager", function(table_name)
         return {
             execute = function(...)
                 local args = {...}
-                if fields_length ~= #args then
-                    prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
-                    if #args == 0 then query_parts[2] = "" end
-                    query_parts[3] = prepared_arguments
-                    final_query = _tbl_concat(query_parts, " ")
-                else
-                    for i=1, #s_fields do
-                        if args[i] == nil then
-                            prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
-                            if #args == 0 then query_parts[2] = "" end
-                            query_parts[3] = prepared_arguments
-                            final_query = _tbl_concat(query_parts, " ")
-                            for j=#args, 1, -1 do
-                                if args[j] == nil then
-                                    _tbl_remove(args, j)
-                                end
-                            end
-                            break
-                        end
-                    end
-                end
+                prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
+                if #args == 0 then query_parts[2] = "" end
+                query_parts[3] = prepared_arguments
+                final_query = _tbl_concat(query_parts, " ")
                 return _DM_SelectQuery(final_query, args, s_cb)
             end,
             update = function(fields, cb, individual, query)
