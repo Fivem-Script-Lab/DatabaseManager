@@ -70,6 +70,8 @@ local _PrepareSelectStatement = PrepareSelectStatement
 local _PrepareSelectStatementConditionsIncludeNull = PrepareSelectStatementConditionsIncludeNull
 local _DM_SelectQuery = DM.SelectQuery
 
+local _init = false
+
 --- Retrieves a table manager for performing operations on a specific database table.
 ---
 --- Provides a set of methods for database operations like `SELECT`, `INSERT`, `UPDATE`, `DELETE`,
@@ -78,186 +80,218 @@ local _DM_SelectQuery = DM.SelectQuery
 --- @param table_name string The name of the database table to manage.
 --- @return table # A table manager object with methods for various database operations.
 exports("GetDatabaseTableManager", function(table_name)
-    Overload:init()
-    Overload:PrepareLocalTable("Prepare")
-    
-    Overload.Prepare.Select(
-    --- Prepares a `SELECT` query with optional conditions.
-    --- @param conditions table|nil Conditions for the query as column-value pairs.
-    --- @param cb function|nil Optional callback for asynchronous execution.
-    --- @param individual boolean|nil Whether to handle conditions individually or in bulk.
-    --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
-    --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
-    function(conditions, cb, individual, query)
-        local s_conditions, s_cb, s_cb_individual, s_query = conditions or {}, cb, individual, query
-        
-        local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
-        local prepared_arguments, order = _PrepareSelectStatement(nil, conditions, 3)
-        local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
-        order = order or {}
-        local arguments = getValuesInOrder(conditions, order)
-        return {
-            execute = function(new_conditions)
-                if new_conditions then
-                    local new_keys = getKeys(new_conditions)
-                    if #new_keys ~= #arguments then
-                        prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
-                        if #order == 0 then query_parts[2] = "" end
-                        arguments = getValuesInOrder(new_conditions, order)
+    if _init == false then
+        Overload:init()
+        Overload:PrepareLocalTable("Prepare")
+
+        Overload.Prepare.Select(
+            {{"nil", "not:array"}, {"nil", "function"}, {"nil", "boolean"}, {"nil", "string"}},
+        --- Prepares a `SELECT` query with optional conditions.
+        --- @param conditions table|nil Conditions for the query as column-value pairs.
+        --- @param cb function|nil Optional callback for asynchronous execution.
+        --- @param individual boolean|nil Whether to handle conditions individually or in bulk.
+        --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
+        --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
+        function(conditions, cb, individual, query)
+            local s_conditions, s_cb, s_cb_individual, s_query = conditions or {}, cb, individual, query
+
+            local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
+            local prepared_arguments, order = _PrepareSelectStatement(nil, conditions, 3)
+            local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
+            order = order or {}
+            local arguments = getValuesInOrder(conditions, order)
+            return {
+                execute = function(new_conditions)
+                    if new_conditions then
+                        local new_keys = getKeys(new_conditions)
+                        if #new_keys ~= #arguments then
+                            prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
+                            if #order == 0 then query_parts[2] = "" end
+                            arguments = getValuesInOrder(new_conditions, order)
+                            query_parts[3] = prepared_arguments
+                        else
+                            for i=1, #new_keys do
+                                if not s_conditions[new_keys[i]] then
+                                    prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
+                                    if #order == 0 then query_parts[2] = "" end
+                                    arguments = getValuesInOrder(new_conditions, order)
+                                    query_parts[3] = prepared_arguments
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    return _DM_SelectQuery(_tbl_concat(query_parts, " "), arguments, s_cb)
+                end,
+                update = function(conditions, cb, individual, query)
+                    s_conditions, s_cb, s_cb_individual, s_query = table.unpack(
+                        RequireNonNullValues(
+                            {conditions, cb, individual, query},
+                            {s_conditions, s_cb, s_cb_individual, s_query}
+                        )
+                    )
+                end
+            }
+        end)
+
+        Overload.Prepare.Select(
+            {"array", {"nil", "function"}, {"nil", "boolean"}, {"nil", "string"}},
+        --- Prepares a `SELECT` query with optional conditions.
+        --- @param fields string[] fields for the query from which values are prepared
+        --- @param cb function|nil Optional callback for asynchronous execution.
+        --- @param individual boolean|nil Whether to handle conditions individually or in bulk.
+        --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
+        --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
+        function(fields, cb, individual, query)
+            local s_fields, s_cb, s_cb_individual, s_query = fields, cb, individual, query
+            
+            local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
+            local prepared_arguments = _PrepareSelectStatement(nil, fields, 3)
+            local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
+
+            local final_query = _tbl_concat(query_parts, " ")
+            local fields_length = #fields
+            return {
+                execute = function(...)
+                    local args = {...}
+                    if fields_length ~= #args then
+                        prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
+                        if #args == 0 then query_parts[2] = "" end
                         query_parts[3] = prepared_arguments
+                        final_query = _tbl_concat(query_parts, " ")
                     else
-                        for i=1, #new_keys do
-                            if not s_conditions[new_keys[i]] then
-                                prepared_arguments, order = _PrepareSelectStatement(table_name, new_conditions, 3)
-                                if #order == 0 then query_parts[2] = "" end
-                                arguments = getValuesInOrder(new_conditions, order)
+                        for i=1, #s_fields do
+                            if args[i] == nil then
+                                prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
+                                if #args == 0 then query_parts[2] = "" end
                                 query_parts[3] = prepared_arguments
+                                final_query = _tbl_concat(query_parts, " ")
+                                for j=#args, 1, -1 do
+                                    if args[j] == nil then
+                                        _tbl_remove(args, j)
+                                    end
+                                end
                                 break
                             end
                         end
                     end
-                end
-                return _DM_SelectQuery(_tbl_concat(query_parts, " "), arguments, s_cb)
-            end,
-            update = function(conditions, cb, individual, query)
-                s_conditions, s_cb, s_cb_individual, s_query = table.unpack(
-                    RequireNonNullValues(
-                        {conditions, cb, individual, query},
-                        {s_conditions, s_cb, s_cb_individual, s_query}
+                    return _DM_SelectQuery(final_query, args, s_cb)
+                end,
+                update = function(fields, cb, individual, query)
+                    s_fields, s_cb, s_cb_individual, s_query = table.unpack(
+                        RequireNonNullValues(
+                            {fields, cb, individual, query},
+                            {s_fields, s_cb, s_cb_individual, s_query}
+                        )
                     )
-                )
-            end
-        }
-    end, function(args)
-        if not areParameterTypesValid(args, {
-            {"nil", "table"}, {"nil", "function"}, {"nil", "boolean"}, {"nil", "string"}
-        }, 4) then return false end
-        if Type(args[1]) == "table" and isarray(args[1]) then return false end
-        return true
-    end)
-
-    Overload.Prepare.Select(
-    --- Prepares a `SELECT` query with optional conditions.
-    --- @param fields string[] fields for the query from which values are prepared
-    --- @param cb function|nil Optional callback for asynchronous execution.
-    --- @param individual boolean|nil Whether to handle conditions individually or in bulk.
-    --- @param query string|nil Additional SQL query string to append (e.g., `ORDER BY`).
-    --- @return table # Prepared `SELECT` object with `execute` and `update` methods.
-    function(fields, cb, individual, query)
-        local s_fields, s_cb, s_cb_individual, s_query = fields, cb, individual, query
-        
-        local prepared_query_start = _PrepareSelectStatement(table_name, nil, 2)
-        local prepared_arguments = _PrepareSelectStatement(nil, fields, 3)
-        local query_parts = { prepared_query_start, _len(prepared_arguments) > 0 and "WHERE" or "", prepared_arguments }
-
-        local final_query = _tbl_concat(query_parts, " ")
-        local fields_length = #fields
-        return {
-            execute = function(...)
-                local args = {...}
-                prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
-                if #args == 0 then query_parts[2] = "" end
-                query_parts[3] = prepared_arguments
-                final_query = _tbl_concat(query_parts, " ")
-                return _DM_SelectQuery(final_query, args, s_cb)
-            end,
-            update = function(fields, cb, individual, query)
-                s_fields, s_cb, s_cb_individual, s_query = table.unpack(
-                    RequireNonNullValues(
-                        {fields, cb, individual, query},
-                        {s_fields, s_cb, s_cb_individual, s_query}
-                    )
-                )
-            end
-        }
-    end, function(args)
-        if not areParameterTypesValid(args, {
-            {"table"}, {"nil", "function"}, {"nil", "boolean"}, {"nil", "string"}
-        }, 3) then return false end
-        if isarray(args[1]) then return true end
-        return false
-    end)
-
-    Overload.Prepare.Select({"function"}, function(cb)
-        local s_cb = cb
-        return {
-            execute = function()
-                return DM.SelectRows(table_name, nil, s_cb, nil, nil)
-            end,
-            update = function(cb)
-                s_cb = cb
-            end
-        }
-    end)
-
-    --- Prepares an `UPDATE` query for a single row.
-    --- @param updates string[] A table of column names to update
-    --- @param condition table A table of column-value pairs defining the condition.
-    --- @param cb function|nil Optional callback for asynchronous execution.
-    --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
-    Overload.Prepare.Update(function(updates, condition, cb)
-        local s_sqlrow, s_updates, s_condition, s_cb = nil, updates, condition, cb
-        return {
-            execute = function(...)
-                s_sqlrow = {}
-                local args = {...}
-                for i=1, math.min(#s_updates, #args) do
-                    s_sqlrow[s_updates[i]] = args[i]
                 end
-                return DM.UpdateRow(table_name, s_sqlrow, s_condition, s_cb)
-            end,
-            update = function(updates, condition, cb)
-                s_updates, s_condition, s_cb = table.unpack(
-                    RequireNonNullValues(
-                        {updates, condition, cb},
-                        {s_updates, s_condition, s_cb}
-                    )
-                )
-            end
-        }
-    end, function(args)
-        if not areParameterTypesValid(args, {"table", "table", {"nil", "function"}}, 1) then
-            return false
-        end
-        if not isarray(args[1]) or isarray(args[2]) then return false end
-        return true
-    end)
+            }
+        end)
 
-    --- Prepares an `UPDATE` query for a single row.
-    --- @param updates_fields string[] A table of column names to update
-    --- @param condition_fields string[] A table of column names defining the condition.
-    --- @param cb function|nil Optional callback for asynchronous execution.
-    --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
-    Overload.Prepare.Update(function(updates_fields, condition_fields, cb)
-        local s_sqlrow, s_sqlcond, s_updates, s_condition, s_cb = nil, nil, updates_fields, condition_fields, cb
-        return {
-            execute = function(updated, conditions)
-                s_sqlrow = {}
-                s_sqlcond = {}
-                for i=1, math.min(#s_updates, #updated) do
-                    s_sqlrow[s_updates[i]] = updated[i]
+        Overload.Prepare.Select({"function"}, function(cb)
+            local s_cb = cb
+            return {
+                execute = function()
+                    return DM.SelectRows(table_name, nil, s_cb, nil, nil)
+                end,
+                update = function(cb)
+                    s_cb = cb
                 end
-                for i=1, math.min(#s_condition, #conditions) do
-                    s_sqlcond[s_condition[i]] = conditions[i]
-                end
-                return DM.UpdateRow(table_name, s_sqlrow, s_sqlcond, s_cb)
-            end,
-            update = function(updates, condition, cb)
-                s_updates, s_condition, s_cb = table.unpack(
-                    RequireNonNullValues(
-                        {updates, condition, cb},
-                        {s_updates, s_condition, s_cb}
+            }
+        end)
+
+        --- Prepares an `UPDATE` query for a single row.
+        --- @param updates string[] A table of column names to update
+        --- @param condition table A table of column-value pairs defining the condition.
+        --- @param cb function|nil Optional callback for asynchronous execution.
+        --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
+        Overload.Prepare.Update({"array", "not:array", {"nil", "function"}}, function(updates, condition, cb)
+            local s_sqlrow, s_updates, s_condition, s_cb = nil, updates, condition, cb
+            return {
+                execute = function(...)
+                    s_sqlrow = {}
+                    local args = {...}
+                    for i=1, math.min(#s_updates, #args) do
+                        s_sqlrow[s_updates[i]] = args[i]
+                    end
+                    return DM.UpdateRow(table_name, s_sqlrow, s_condition, s_cb)
+                end,
+                update = function(updates, condition, cb)
+                    s_updates, s_condition, s_cb = table.unpack(
+                        RequireNonNullValues(
+                            {updates, condition, cb},
+                            {s_updates, s_condition, s_cb}
+                        )
                     )
-                )
-            end
-        }
-    end, function(args)
-        if not areParameterTypesValid(args, {"table", "table", {"nil", "function"}}, 1) then
-            return false
-        end
-        if not isarray(args[1]) or not isarray(args[2]) then return false end
-        return true
-    end)
+                end
+            }
+        end)
+
+        --- Prepares an `UPDATE` query for a single row.
+        --- @param updates_fields string[] A table of column names to update
+        --- @param condition_fields string[] A table of column names defining the condition.
+        --- @param cb function|nil Optional callback for asynchronous execution.
+        --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
+        Overload.Prepare.Update({"array", "array", {"nil", "function"}}, function(updates_fields, condition_fields, cb)
+            local s_sqlrow, s_sqlcond, s_updates, s_condition, s_cb = nil, nil, updates_fields, condition_fields, cb
+            return {
+                execute = function(updated, conditions)
+                    s_sqlrow = {}
+                    s_sqlcond = {}
+                    for i=1, math.min(#s_updates, #updated) do
+                        s_sqlrow[s_updates[i]] = updated[i]
+                    end
+                    for i=1, math.min(#s_condition, #conditions) do
+                        s_sqlcond[s_condition[i]] = conditions[i]
+                    end
+                    return DM.UpdateRow(table_name, s_sqlrow, s_sqlcond, s_cb)
+                end,
+                update = function(updates, condition, cb)
+                    s_updates, s_condition, s_cb = table.unpack(
+                        RequireNonNullValues(
+                            {updates, condition, cb},
+                            {s_updates, s_condition, s_cb}
+                        )
+                    )
+                end
+            }
+        end)
+
+        --- Prepares an `UPDATE` query for a single row.
+        --- @param updates_fields string[] A table of column names to update
+        --- @param condition_fields string[] A table of column names defining the condition.
+        --- @param cb boolean|function if false, the callback is simply not provided
+        --- @return table # Prepared `UPDATE` object with `execute` and `update` methods.
+        Overload.Prepare.Update({"array", "array", {"function", "boolean"}}, function(updates_fields, condition_fields, cb)
+            local s_sqlrow, s_sqlcond, s_updates, s_condition, s_cb = nil, nil, updates_fields, condition_fields, cb
+            return {
+                execute = function(updated, conditions)
+                    s_sqlrow = {}
+                    s_sqlcond = {}
+                    for i=1, math.min(#s_updates, #updated) do
+                        s_sqlrow[s_updates[i]] = updated[i]
+                    end
+                    for i=1, math.min(#s_condition, #conditions) do
+                        s_sqlcond[s_condition[i]] = conditions[i]
+                    end
+                    if cb ~= false then
+                        return DM.UpdateRow(table_name, s_sqlrow, s_sqlcond, s_cb)
+                    else
+                        return DM.UpdateRowNoCallback(table_name, s_sqlrow, s_sqlcond)
+                    end
+                end,
+                update = function(updates, condition, cb)
+                    s_updates, s_condition, s_cb = table.unpack(
+                        RequireNonNullValues(
+                            {updates, condition, cb},
+                            {s_updates, s_condition, s_cb}
+                        )
+                    )
+                end
+            }
+        end)
+        _init = true
+    end
 
     local Prepare = Overload:GetObject("Prepare")
 
@@ -416,6 +450,7 @@ exports("GetDatabaseTableManager", function(table_name)
     end
 
     local data = {
+        __name = table_name,
         --- **Prepared Query Methods**
         Prepare = Prepare,
         --- **Table Operations**

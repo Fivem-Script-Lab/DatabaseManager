@@ -439,7 +439,7 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
-                MySQL.prepare(query, row_values, cb)
+                -- MySQL.prepare(query, row_values, cb)
             end
         else
             local results = {}
@@ -448,16 +448,16 @@ DM.SelectRows = function(table_name, conditions, cb, individual, query)
                 ---@diagnostic disable-next-line: need-check-nil
                 local keys_length = #GetKeys(conditions[i])
                 local row_values = {table.unpack(all_values, (i - 1) * keys_length + 1, i * keys_length)}
-                results[#results + 1] = MySQL.prepare.await(query, row_values)
+                -- results[#results + 1] = MySQL.prepare.await(query, row_values)
             end
             return results
         end
     else
         query = ([[SELECT * FROM %s WHERE %s]]):format(table_name, table.concat(query_conditions, " OR ")) .. query
         if cb then
-            MySQL.prepare(query, all_values, cb)
+            -- MySQL.prepare(query, all_values, cb)
         else
-            return MySQL.prepare.await(query, all_values)
+            -- return MySQL.prepare.await(query, all_values)
         end
     end
 end
@@ -472,7 +472,7 @@ DM.Select = DM.SelectRows
 --- @param table_name string The name of the database table.
 --- @param updates { [string]: any } A table of column-value pairs to update (keys are column names).
 --- @param condition { [string]: any } A table of column-value pairs defining the condition for the update.
---- @param cb? function|nil Optional callback for asynchronous execution.
+--- @param cb? function|boolean|nil Optional callback for asynchronous execution.
 --- @param query? string|nil Additional SQL query string to append (e.g., `LIMIT`).
 --- @return boolean|nil # Returns `false` if the table doesn't exist. If synchronous, returns the result of the operation.
 DM.UpdateRow = function(table_name, updates, condition, cb, query)
@@ -503,6 +503,42 @@ DM.UpdateRow = function(table_name, updates, condition, cb, query)
     else
         return MySQL.prepare.await(query, all_values)
     end
+end
+
+--- Updates a single row in a database table.
+---
+--- Constructs an `UPDATE` query to modify values in `table_name` based on the specified `condition`.
+--- Supports synchronous and asynchronous operations.
+---
+--- @param table_name string The name of the database table.
+--- @param updates { [string]: any } A table of column-value pairs to update (keys are column names).
+--- @param condition { [string]: any } A table of column-value pairs defining the condition for the update.
+--- @param query? string|nil Additional SQL query string to append (e.g., `LIMIT`).
+--- @return boolean|nil # Returns `false` if the table doesn't exist. If synchronous, returns the result of the operation.
+DM.UpdateRowNoCallback = function(table_name, updates, condition, query)
+    if not DM.DoesTableExist(table_name) then return false end
+    query = query or ""
+    local update_placeholders = {}
+    local all_values = {}
+
+    for column, value in pairs(updates) do
+        update_placeholders[#update_placeholders + 1] = column .. " = ?"
+        all_values[#all_values + 1] = value
+    end
+
+    local update_clause = table.concat(update_placeholders, ", ")
+
+    local condition_placeholders = {}
+    for column, value in pairs(condition) do
+        condition_placeholders[#condition_placeholders + 1] = column .. " = ?"
+        all_values[#all_values + 1] = value
+    end
+
+    local condition_clause = table.concat(condition_placeholders, " AND ")
+
+    query = ([[UPDATE %s SET %s WHERE %s]]):format(table_name, update_clause, condition_clause) .. query
+
+    MySQL.prepare(query, all_values)
 end
 
 --- Updates multiple rows in a database table.

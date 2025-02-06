@@ -9,6 +9,7 @@ description "Provides basic wrappers for query creation"
 
 server_scripts {
     '@mysql-async/lib/MySQL.lua',
+    'version_check.lua',
     'utils/OOP.lua',
     'init.lua',
     'prepared_queries.lua',

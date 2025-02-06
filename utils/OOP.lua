@@ -55,16 +55,21 @@ function ReplaceOverloadedFunction(func, replace)
     return true
 end
 
+local function isarray(tbl)
+    if #tbl == 0 then
+        return next(tbl) == nil
+    end
+    return true
+end
+
 local function getTrailingNils(array)
     local result = 0
     for i=#array, 1, -1 do
         if _type(array[i]) == "table" then
             for j=1, #array[i] do
-                if array[i][j] == "table" then
-                    if array[i][j] == "nil" then
-                        result += 1
-                        break
-                    end
+                if array[i][j] == "nil" then
+                    result += 1
+                    break
                 end
             end
         elseif array[i] == "nil" then
@@ -78,41 +83,119 @@ end
 ---@param parameters table
 ---@param trailingNils number
 ---@return boolean
-function areParameterTypesValid(to_check, parameters, trailingNils)
+function areParameterTypesValid(to_check, parameters, trailingNils, name)
     local nToCheck = #to_check
     local nParameters = #parameters
 
     if nToCheck > nParameters then return false end
-
     if nParameters > nToCheck then
         if nParameters - nToCheck > trailingNils then
             return false
         end
     end
-    for k, param in ipairs(to_check) do
-        local paramType = _t(param)
-        if callable(param) then paramType = "function" end
-        local expectedType = parameters[k]
-        if _t(expectedType) == "table" then
-            local canpass = false
-            for _, v in ipairs(parameters[k]) do
-                if v == paramType then
-                    canpass = true
-                    break
-                end
-            end
-            if not canpass then return false end
-        elseif expectedType ~= paramType then
-            if expectedType == "function" and paramType == "table" then
-                local mt = getmetatable(param)
-                if not(mt and mt.__call or false) then
+    for index, argument in ipairs(to_check) do
+        local argumentType = _t(argument)
+        if callable(argument) then argumentType = "function" end
+        local expectedType = parameters[index]
+        if _t(expectedType) ~= "table" then
+            local prefix = expectedType:sub(1, 4)
+            if prefix ~= "not:" then
+                if expectedType == "array" then
+                    if not isarray(argument) then
+                        return false    
+                    end
+                elseif argumentType ~= expectedType then
                     return false
                 end
             else
+                expectedType = expectedType:sub(5, expectedType:len())
+                if expectedType == "array" then
+                    if isarray(argument) then
+                        return false
+                    end
+                elseif argumentType == expectedType then
+                    return false
+                end
+            end
+        else
+            local canpass = false
+            for _, expectedTypeValue in ipairs(expectedType) do
+                local prefix = expectedTypeValue:sub(1, 4)
+                if prefix ~= "not:" then
+                    if expectedTypeValue == "array" then
+                        if isarray(argument) then
+                            canpass = true
+                            break
+                        end
+                    elseif argumentType == expectedTypeValue then
+                        canpass = true
+                        break
+                    end
+                else
+                    expectedTypeValue = expectedTypeValue:sub(5, expectedTypeValue:len())
+                    if expectedTypeValue == "array" then
+                        if not isarray(argument) then
+                            canpass = true
+                            break
+                        end
+                    elseif argumentType ~= expectedTypeValue then
+                        canpass = true
+                        break
+                    end
+                end
+            end
+            if not canpass then
                 return false
             end
         end
     end
+
+    -- for k, param in ipairs(to_check) do
+    --     local paramType = _t(param)
+    --     if callable(param) then paramType = "function" end
+    --     local expectedType = parameters[k]
+    --     local expectedTypeTable = _t(expectedType) == "table"
+    --     local not_type = false
+    --     if not expectedTypeTable and expectedType:sub(1, 4) == "not:" then
+    --         expectedType = expectedType:sub(5, expectedType:len())
+    --         not_type = true
+    --     end
+    --     if expectedTypeTable == "table" then
+    --         local canpass = false
+    --         for _, v in ipairs(expectedType) do
+    --             ---@diagnostic disable-next-line: redefined-local
+    --             local not_type = v:sub(1, 4) == "not:"
+    --             local f_type = not_type and v:sub(4, v:len()) or v
+    --             print(not_type, f_type, paramType)
+    --             if (not_type and f_type ~= paramType) or (not not_type and f_type == paramType) then
+    --                 canpass = true
+    --                 break
+    --             end
+    --         end
+    --         if not canpass then return false end
+    --     elseif not not_type and expectedType ~= paramType then
+    --         print(paramType, expectedType, param, k, expectedTypeTable)
+    --         if paramType == "table" then
+    --             if expectedType == "function" then
+    --                 local mt = getmetatable(param)
+    --                 if not(mt and mt.__call or false) then
+    --                     return false
+    --                 end
+    --             elseif expectedType == "array" then
+    --                 if not isarray(param) then return false end
+    --             end
+    --         else
+    --             return false
+    --         end
+    --     elseif not_type and expectedType == "array" then
+    --         if paramType == "table" then
+    --             if isarray(param) then
+    --                 return false
+    --             end
+    --         end
+    --     end
+    --     return false
+    -- end
     return true
 end
 
@@ -206,7 +289,7 @@ local function _ObjectOverload(object, name, types, func)
         object[name] = function(...)
             local args = {...}
             for _,v in ipairs(objectoverloaded[name]) do
-                if (#args - v[3]) <= #v[1] and areParameterTypesValid(args, v[1], v[3]) then
+                if (#args - v[3]) <= #v[1] and areParameterTypesValid(args, v[1], v[3], name) then
                     return v[2](...)
                 end
             end
