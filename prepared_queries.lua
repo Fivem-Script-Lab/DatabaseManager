@@ -1,6 +1,7 @@
 local _next = next
 local _tbl_create = table.create
 local _tbl_concat = table.concat
+local _type = type
 
 local function isTableEmpty(tbl)
     return _next(tbl) == nil
@@ -26,8 +27,18 @@ end
 local function createSelectConditionsFromTable(arguments)
     local query = {}
     local args = {}
-    for column, _ in pairs(arguments) do
-        query[#query+1] = "`" .. column .. "` = ?"
+    for column, value in pairs(arguments) do
+        local like_value = column:sub(1, 5) == "like:" or false
+        if like_value then
+            column = column:sub(6, column:len())
+        elseif _type(value) == "string" then
+            like_value = value:sub(1, 5) == "like:"
+        end
+        if like_value then
+            query[#query+1] = "`" .. column .. "` LIKE ?"
+        else
+            query[#query+1] = "`" .. column .. "` = ?"
+        end
         args[#args+1] = column
     end
     return _tbl_concat(query, " AND "), args
@@ -39,7 +50,12 @@ end
 local function createSelectConditionsFromArray(arguments)
     local query = _tbl_create(#arguments, 0)
     for i=1, #arguments do
-        query[#query+1] = "`" .. arguments[i] .. "` = ?"
+        local like_value = arguments[i]:sub(1, 5) == "like:" or false
+        if like_value then
+            query[#query+1] = "`" .. arguments[i]:sub(6, arguments[i]:len()) .. "` LIKE ?"
+        else
+            query[#query+1] = "`" .. arguments[i] .. "` = ?"
+        end
     end
     return _tbl_concat(query, " AND "), arguments
 end
@@ -72,8 +88,16 @@ function PrepareSelectStatementConditionsIncludeNull(order, args)
     if isTableEmpty(args) then return "" end
     local result = _tbl_create(#order, 0)
     for i=1, #order do
-        print(order[i], args[i])
-        result[i] = order[i] .. " = " .. (args[i] == nil and "NULL" or "?")
+        local like_value = order[i]:sub(1,5) == "like:" or false
+        if like_value then
+            order[i] = order[i]:sub(6, order[i]:len())
+        else
+            like_value = _type(args[i]) == "string" and args[i]:sub(1, 5) == "like:"
+            if like_value then
+                args[i] = args[i]:sub(6, args[i]:len())
+            end
+        end
+        result[i] = order[i] .. (like_value and " LIKE " or " = ") .. (args[i] == nil and "NULL" or "?")
     end
     return _tbl_concat(result, " AND ")
 end

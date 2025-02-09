@@ -161,7 +161,7 @@ exports("GetDatabaseTableManager", function(table_name)
                         final_query = _tbl_concat(query_parts, " ")
                     else
                         for i=1, #s_fields do
-                            if args[i] == nil then
+                            if args[i] == nil or (_type(args[i]) == "string" and args[i]:sub(1, 5) == "like:") then
                                 prepared_arguments = _PrepareSelectStatementConditionsIncludeNull(s_fields, args)
                                 if #args == 0 then query_parts[2] = "" end
                                 query_parts[3] = prepared_arguments
