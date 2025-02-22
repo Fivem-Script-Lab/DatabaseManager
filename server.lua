@@ -449,6 +449,123 @@ exports("GetDatabaseTableManager", function(table_name)
         }
     end
 
+    ORM = {}
+    ORM.New = function(data, primary_fields, fields_hints)
+        if _type(data) ~= "table" then return nil end
+        local isMultiple = #data > 0
+        if isMultiple then
+            local results = _tbl_create(#data, 0)
+            for i=1, #data do
+                results[#results+1] = ORM.New(data[i], primary_fields)
+            end
+            return results
+        end
+        local object = {
+            __data = {
+                primary_fields = primary_fields,
+                get_update_conditions = nil,
+                auto_update = true
+            },
+            fields = {}
+        }
+        local updated_values = {}
+        object.__data.get_update_conditions = function()
+            local conditions = {}
+            if not object.__data.primary_fields then
+                for name, value in pairs(object.fields) do
+                    if updated_values[name] == nil then
+                        conditions[name] = value
+                    end
+                end
+            else
+                for _, name in ipairs(object.__data.primary_fields) do
+                    conditions[name] = object.fields[name]
+                end
+            end
+            return conditions
+        end
+        for field, value in pairs(data) do
+            object.fields[field] = value
+        end
+        object.Set = function(name, value)
+            object.fields[name] = value
+            if object.__data.auto_update then
+                local conditions = object.__data.get_update_conditions()
+                if _type(value) == "table" then value = json.encode(value) end
+                return DM.UpdateRow(table_name, {[name] = value}, conditions)
+            else
+                updated_values[name] = true
+            end
+        end
+        object.Get = function(name)
+            return object.fields[name]
+        end
+        object.AutoSave = function(auto)
+            object.__data.auto_update = auto
+        end
+        object.Save = function()
+            local conditions = object.__data.get_update_conditions()
+            local fields = {}
+            local updated = 0
+            for name in pairs(updated_values) do
+                updated += 1
+                local value = object.fields[name]
+                if _type(value) == "table" then value = json.encode(value) end
+                fields[name] = value
+            end
+            if updated == 0 then return nil end
+            return DM.UpdateRow(table_name, fields, conditions)
+        end
+        object.Fetch = function()
+            if not object.__data.primary_fields then
+                return print('[DatabaseManager:ERROR] ORM Object could not fetch data without Primary Keys defined')
+            end
+            local data = DM.SelectRows(table_name, object.__data.get_update_conditions())
+            if not data then
+                return print('[DatabaseManager:ERROR] ORM Object could not fetch data, Primary Keys not found')
+            end
+            if #data > 0 then data = data[1] end
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for field, value in pairs(data) do
+                local cur_value = value
+                local field_hint = fields_hints[field]
+                if field_hint then
+                    if field_hint.json then
+                        cur_value = json.decode(cur_value)
+                    end
+                    if field_hint.cb then
+                        cur_value = field_hint.cb(cur_value)
+                    end
+                end
+                object.fields[field] = value
+            end
+            updated_values = {}
+        end
+        return object
+    end
+    ORM.Define = function(primary_fields, fields_hints)
+        local object = {}
+        object.SelectSingle = function(conditions)
+            local data = DM.SelectRows(table_name, conditions)
+            if _type(data) ~= "table" then return {} end
+            if data then
+                if #data > 0 then
+                    data = data[1]
+                end
+            end
+            return ORM.New(data, primary_fields, fields_hints)
+        end
+        object.SelectAll = function(conditions)
+            local data = DM.SelectRows(table_name, conditions)
+            if not data then return {} end
+            local result = ORM.New(data, primary_fields, fields_hints)
+            if not result then return nil end
+            if #result == 0 then result = { result } end
+            return result
+        end
+        return object
+    end
+
     local data = {
         __name = table_name,
         --- **Prepared Query Methods**
@@ -512,7 +629,8 @@ exports("GetDatabaseTableManager", function(table_name)
         end,
         UpdateRows = function(...)
             return DM.UpdateRows(table_name, ...)
-        end
+        end,
+        ORM = ORM
     }
 
     return data

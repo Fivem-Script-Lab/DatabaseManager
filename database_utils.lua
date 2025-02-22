@@ -59,6 +59,7 @@ DM.DoesTableExist = function(table_name)
         if cache_tables[sqltable] == nil then cache_tables[sqltable] = true end
         if sqltable == table_name then return true end
     end
+    print("[DatabaseManager:ERROR] Database " .. table_name .. " does not exist")
     return false
 end
 ---clears local cache of DM.DoesTableExist
