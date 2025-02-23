@@ -516,12 +516,28 @@ exports("GetDatabaseTableManager", function(table_name)
             if updated == 0 then return nil end
             return DM.UpdateRow(table_name, fields, conditions)
         end
+        object.Delete = function()
+            local conditions = object.__data.get_update_conditions()
+            if next(conditions) == nil then
+                return print('[DatabaseManager:ERROR] ORM Object could not be deleted, conditions specify *')
+            end
+            return DM.DeleteRow(table_name, conditions)
+        end
+        object.Insert = function(rows)
+            return DM.InsertRow(table_name, rows)
+        end
+        object.Ensure = function(rows)
+            local exists = object.Fetch()
+            if not exists then
+                return object.Insert(rows)
+            end
+        end
         object.Fetch = function()
             if not object.__data.primary_fields then
                 return print('[DatabaseManager:ERROR] ORM Object could not fetch data without Primary Keys defined')
             end
             local data = DM.SelectRows(table_name, object.__data.get_update_conditions())
-            if not data then
+            if not data or #data ~= 0 then
                 return print('[DatabaseManager:ERROR] ORM Object could not fetch data, Primary Keys not found')
             end
             if #data > 0 then data = data[1] end
@@ -540,6 +556,7 @@ exports("GetDatabaseTableManager", function(table_name)
                 object.fields[field] = value
             end
             updated_values = {}
+            return true
         end
         return object
     end
