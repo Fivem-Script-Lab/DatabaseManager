@@ -451,7 +451,7 @@ exports("GetDatabaseTableManager", function(table_name)
 
     ORM = {}
     ORM.New = function(data, primary_fields, fields_hints)
-        if _type(data) ~= "table" then return nil end
+        if _type(data) ~= "table" then return nil, false end
         local isMultiple = #data > 0
         if isMultiple then
             local results = _tbl_create(#data, 0)
@@ -519,26 +519,28 @@ exports("GetDatabaseTableManager", function(table_name)
         object.Delete = function()
             local conditions = object.__data.get_update_conditions()
             if next(conditions) == nil then
-                return print('[DatabaseManager:ERROR] ORM Object could not be deleted, conditions specify *')
+                return print('[DatabaseManager:ERROR] ORM Object could not be deleted, conditions specify *'), false
             end
             return DM.DeleteRow(table_name, conditions)
         end
-        object.Insert = function(rows)
-            return DM.InsertRow(table_name, rows)
+        object.Insert = function(row)
+            return DM.InsertRow(table_name, row or object.fields)
         end
         object.Ensure = function(rows)
             local exists = object.Fetch()
             if not exists then
-                return object.Insert(rows)
+                object.Insert(rows)
+                return object
             end
+            return object
         end
         object.Fetch = function()
             if not object.__data.primary_fields then
-                return print('[DatabaseManager:ERROR] ORM Object could not fetch data without Primary Keys defined')
+                return print('[DatabaseManager:ERROR] ORM Object could not fetch data without Primary Keys defined'), false
             end
             local data = DM.SelectRows(table_name, object.__data.get_update_conditions())
             if not data or #data ~= 0 then
-                return print('[DatabaseManager:ERROR] ORM Object could not fetch data, Primary Keys not found')
+                return print('[DatabaseManager:ERROR] ORM Object could not fetch data, Primary Keys not found'), false
             end
             if #data > 0 then data = data[1] end
             ---@diagnostic disable-next-line: param-type-mismatch
@@ -564,7 +566,7 @@ exports("GetDatabaseTableManager", function(table_name)
         local object = {}
         object.SelectSingle = function(conditions)
             local data = DM.SelectRows(table_name, conditions)
-            if _type(data) ~= "table" then return {} end
+            if _type(data) ~= "table" then return {}, false end
             if data then
                 if #data > 0 then
                     data = data[1]
@@ -579,6 +581,9 @@ exports("GetDatabaseTableManager", function(table_name)
             if not result then return nil end
             if #result == 0 then result = { result } end
             return result
+        end
+        object.Ensure = function(data)
+            return ORM.New(data, primary_fields, fields_hints)?.Ensure()
         end
         return object
     end
