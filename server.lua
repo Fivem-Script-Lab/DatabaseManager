@@ -36,6 +36,13 @@ local function isarray(tbl)
     return true
 end
 
+local function isempty(tbl)
+    for _ in pairs(tbl) do
+        return false
+    end
+    return true
+end
+
 local _type = _G.type
 
 local function callable(func)
@@ -64,6 +71,33 @@ local function getKeys(tbl)
         keys[#keys+1] = k
     end
     return keys
+end
+
+---@param tbl table|any
+local function selectOnlySingleValueOrNil(tbl)
+    if not tbl or _type(tbl) ~= "table" then return nil, "value is not a table" end
+    if #tbl == 0 then
+        if not isempty(tbl) then
+            return tbl
+        end
+        return nil, "empty table"
+    elseif #tbl > 1 then
+        return nil, "table contains more than 1 element"
+    end
+    return tbl
+end
+
+---@param tbl table|table[]|any
+---@return table[]
+local function selectTablesAsArrayAnyMeans(tbl)
+    if not tbl or _type(tbl) ~= "table" then return {} end
+    if #tbl == 0 then
+        if not isempty(tbl) then
+            return {tbl}
+        end
+        return {}
+    end
+    return tbl
 end
 
 local _PrepareSelectStatement = PrepareSelectStatement
@@ -450,7 +484,188 @@ exports("GetDatabaseTableManager", function(table_name)
     end
 
     ORM = {}
-    ORM.New = function(data, primary_fields, fields_hints)
+
+    ORM.New = function(primary_fields, fields_metadata, object_metadata, object_data)
+        local object = {
+            --- metadata of an object
+            __data = {
+                primary_fields = primary_fields or nil,
+                fields_metadata = fields_metadata or {},
+                object_metadata = object_metadata or {},
+                select_conditions = nil,
+                updated_fields = {}
+            },
+            fields = {},
+        }
+
+        object.__data.select_conditions = function()
+            local conditions = {}
+            local object_metadata = object.__data
+            if not object_metadata.primary_fields then
+                for name, value in pairs(object.fields) do
+                    if object_metadata.updated_fields[name] == nil then
+                        conditions[name] = value
+                    end
+                end
+            else
+                for _, name in ipairs(object_metadata.primary_fields) do
+                    conditions[name] = object.fields[name]
+                end
+            end
+            return conditions
+        end
+        
+        for field, value in pairs(object_data) do
+            object.fields[field] = value
+        end
+
+        object.Set = function(field, value)
+            if object.__data.object_metadata.auto_save then
+                local conditions = object.__data.select_conditions()
+                if _type(value) == "table" then value = json.encode(value) end
+                return DM.UpdateRow(table_name, {[field] = value}, conditions)
+            else
+                object.__data.updated_fields[field] = true
+            end
+            object.fields[field] = value
+        end
+
+        object.Get = function(field)
+            return object.fields[field]
+        end
+
+        object.AutoSave = function(state)
+            object.__data.object_metadata.auto_save = state
+        end
+
+        object.Save = function()
+            local conditions = object.__data.select_conditions()
+            local fields = {}
+            local updated = 0
+            for name in pairs(object.__data.updated_values) do
+                updated += 1
+                local value = object.fields[name]
+                if _type(value) == "table" then value = json.encode(value) end
+                fields[name] = value
+            end
+            if updated == 0 then return nil end
+            object.__data.updated_fields = {}
+            return DM.UpdateRow(table_name, fields, conditions)
+        end
+
+        object.Delete = function()
+            local conditions = object.__data.select_conditions()
+            if next(conditions) == nil then
+                return false, "[DatabaseManager:ERROR] ORM Object could not be deleted, conditions specify *"
+            end
+            return DM.DeleteRow(table_name, conditions)
+        end
+
+        object.Insert = function(row)
+            return DM.InsertRow(table_name, row or object.fields)
+        end
+
+        object.Fetch = function()
+            local conditions = object.__data.select_conditions()
+            local row = DM.SelectRows(table_name, conditions)
+            if not row then return nil, "[DatabaseManager:ERROR] ORM Object could not fetch data, found 0 matching rows" end
+            if #row > 1 then return nil, "[DatabaseManager:ERROR] ORM Object could not fetch data, found > 1 matching rows" end
+            if #row == 1 then
+                row = row[1]
+            end
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for field, value in pairs(row) do
+                local cur_value = value
+                local field_hint = object.__data.fields_metadata[field]
+                if field_hint then
+                    if field_hint.json then
+                        cur_value = json.decode(cur_value)
+                    end
+                    if field_hint.cb then
+                        cur_value = field_hint.cb(cur_value)
+                    end
+                end
+                object.fields[field] = value
+            end
+
+            return true
+        end
+
+        object.Ensure = function(row)
+            local exists = object.Fetch()
+            if not exists then
+                object.Insert(row)
+                return object
+            end
+            return object
+        end
+
+        return object
+    end
+    
+    ---@param primary_fields string[]
+    ---@param fields_metadata table|nil
+    ---@diagnostic disable-next-line: duplicate-set-field
+    ORM.Define = function(primary_fields, fields_metadata, object_metadata)
+        local object = {
+            __primary_fields = primary_fields,
+            __fields_metadata = fields_metadata,
+            __object_metadata = object_metadata
+        }
+        ---@param conditions table
+        object.SelectRow = function(conditions)
+            local row, err = selectOnlySingleValueOrNil(
+                DM.SelectRows(table_name, conditions)
+            )
+
+            if err then
+                return print('[DatabaseManager:ERROR] ORM Object could not select single row, error message: ' .. err)
+            end
+
+            return ORM.New(primary_fields, fields_metadata, object_metadata, row)
+        end
+
+        object.SelectRows = function(conditions)
+            local rows = selectTablesAsArrayAnyMeans(
+                DM.SelectRows(table_name, conditions)
+            )
+
+            local result = _tbl_create(#rows, 0)
+            for i=1, #rows do
+                result[#result+1] = ORM.New(primary_fields, fields_metadata, object_metadata, rows[i])
+            end
+
+            return result
+        end
+
+        object.Select = object.SelectRows
+
+        object.Ensure = function(fields)
+            local row, err = selectOnlySingleValueOrNil(
+                DM.SelectRows(table_name, fields)
+            )
+
+            if err then
+                local orm = ORM.New(primary_fields, fields_metadata, object_metadata, fields)
+                orm.Ensure()
+                return orm
+            end
+
+            return ORM.New(primary_fields, fields_metadata, object_metadata, row)
+        end
+
+        object.Exist = function(conditions)
+            local _, err = selectOnlySingleValueOrNil(
+                DM.SelectRows(table_name, conditions)
+            )
+
+            return err == nil
+        end
+
+        return object
+    end
+
+    --[[ORM.New = function(data, primary_fields, fields_hints)
         if _type(data) ~= "table" then return nil, false end
         local isMultiple = #data > 0
         if isMultiple then
@@ -562,6 +777,7 @@ exports("GetDatabaseTableManager", function(table_name)
         end
         return object
     end
+---@diagnostic disable-next-line: duplicate-set-field
     ORM.Define = function(primary_fields, fields_hints)
         local object = {}
         object.SelectSingle = function(conditions)
@@ -586,7 +802,7 @@ exports("GetDatabaseTableManager", function(table_name)
             return ORM.New(data, primary_fields, fields_hints)?.Ensure()
         end
         return object
-    end
+    end]]
 
     local data = {
         __name = table_name,
