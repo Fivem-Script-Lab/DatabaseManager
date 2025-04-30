@@ -9,7 +9,16 @@ DM.CreateTable = function(table_name, args, truncate)
         data[#data + 1] = table.concat(v, " ")
     end
     MySQL.prepare.await(([[CREATE TABLE IF NOT EXISTS %s (%s)]]):format(table_name, table.concat(data, ", ")))
-    return true
+
+    local status, err = pcall(function(tbl_name)
+        MySQL.prepare.await(("SELECT * FROM %s LIMIT 1"):format(tbl_name))
+    end)
+
+    if status then
+        DM.RefreshCache()
+    end
+
+    return status
 end
 
 -- -@param table_name string table to be created it it already does not exist
